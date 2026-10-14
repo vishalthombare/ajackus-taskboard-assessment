@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, getStoredUser } from "@/lib/api-client";
+import { updateTask as updateProjectTask } from "@/lib/task-api";
 import type { ApiTask, ApiProjectMember, TaskStatus } from "@/types";
 import { STATUS_LABELS, STATUS_ORDER } from "@/types";
 
@@ -25,10 +26,7 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
 
   const updateTask = useMutation({
     mutationFn: (input: Partial<ApiTask>) =>
-      apiFetch<{ task: ApiTask }>(`/api/tasks/${task.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(input),
-      }),
+      updateProjectTask(task.id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", currentUserId, projectId] });
       onClose();

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, getToken, getStoredUser } from "@/lib/api-client";
+import { getToken, getStoredUser } from "@/lib/api-client";
+import { getProject, createTask as createProjectTask } from "@/lib/task-api";
 import { Header } from "@/components/Header";
 import { StatusColumn } from "@/components/StatusColumn";
 import { TaskDetail } from "@/components/TaskDetail";
-import type { ApiProjectDetail, ApiTask, TaskStatus } from "@/types";
+import type { ApiTask, TaskStatus } from "@/types";
 import { STATUS_ORDER } from "@/types";
 
 export default function ProjectPage() {
@@ -26,15 +27,12 @@ export default function ProjectPage() {
   const { data, isLoading, error: queryError } = useQuery({
     queryKey: ["project", currentUserId, id],
     enabled: Boolean(getToken() && currentUserId && id),
-    queryFn: ({ signal }) => apiFetch<{ project: ApiProjectDetail }>(`/api/projects/${id}`, { signal }),
+    queryFn: ({ signal }) => getProject(id!, { signal }),
   });
 
   const createTask = useMutation({
     mutationFn: (input: { title: string; status: TaskStatus }) =>
-      apiFetch<{ task: ApiTask }>(`/api/projects/${id}/tasks`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+      createProjectTask(id!, input),
     onSuccess: () => {
       setNewTitle("");
       queryClient.invalidateQueries({ queryKey: ["project", currentUserId, id] });
