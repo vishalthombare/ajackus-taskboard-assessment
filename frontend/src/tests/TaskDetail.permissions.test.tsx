@@ -32,7 +32,7 @@ function showTask(role?: Role) {
 beforeEach(() => {
   vi.clearAllMocks();
   setSession("test-token", user);
-  vi.mocked(apiFetch).mockResolvedValue({ task });
+  vi.mocked(apiFetch).mockImplementation(async path => path.endsWith("/comments") ? { comments: [], nextCursor: null } : { task });
 });
 afterEach(() => { cleanup(); clearSession(); });
 
@@ -46,7 +46,7 @@ describe("task editor permissions", () => {
     }
     fireEvent.click(screen.getByRole("button", { name: "save" }));
     fireEvent.click(screen.getByRole("button", { name: "delete task" }));
-    expect(apiFetch).not.toHaveBeenCalled();
+    expect(vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method)).toEqual([]);
   });
 
   it("uses the signed-in user's membership rather than another member's role", () => {

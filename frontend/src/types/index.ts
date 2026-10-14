@@ -47,3 +47,12 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 export const STATUS_ORDER: TaskStatus[] = ["todo", "in_progress", "review", "done"];
+
+export type TaskComment = {
+  id: string;
+  author: Pick<ApiUser, "id" | "name">;
+  body: string;
+  createdAt: string;
+};
+
+export type CommentPage = { comments: TaskComment[]; nextCursor: string | null };

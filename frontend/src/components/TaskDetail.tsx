@@ -1,3 +1,4 @@
+import { TaskComments } from "@/components/TaskComments";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, getStoredUser } from "@/lib/api-client";
@@ -61,7 +62,7 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl bg-surface border border-border rounded-lg p-6"
+        className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-surface border border-border rounded-lg p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -138,7 +139,9 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
           </p>
         )}
 
-        <div className="flex items-center justify-between gap-3">
+        <TaskComments key={`${task.id}-${currentUserId}`} taskId={task.id} canPost={canEdit} />
+
+        <div className="flex items-center justify-between gap-3 mt-6">
           <button
             onClick={() => { if (canEdit) deleteTask.mutate(); }}
             disabled={!canEdit || deleteTask.isPending}

@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
 
 
 class Project(models.Model):
@@ -59,4 +60,56 @@ class Task(models.Model):
 
     class Meta:
         db_table = 'tasks'
-        indexes = [models.Index(fields=['project', 'status'])]
+        indexes = [models.Index(fields=['project', 'status'], name='tasks_project_status_idx')]
+
+
+class TaskEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError('Task history is append-only.')
+
+    def delete(self):
+        raise ValidationError('Task history is append-only.')
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError('Task history is append-only.')
+
+
+class TaskEvent(models.Model):
+    EVENT_TYPES = [('comment_added', 'Comment'), ('task_created', 'Task created'), ('task_updated', 'Task updated')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.PROTECT, related_name='events')
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='task_events')
+    actor_name = models.CharField(max_length=200)
+    event_type = models.CharField(max_length=32, choices=EVENT_TYPES)
+    body = models.CharField(max_length=5000, null=True, blank=True)
+    changes = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = TaskEventQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError('Task history is append-only.')
+        kwargs['force_insert'] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Task history is append-only.')
+
+    class Meta:
+        db_table = 'task_events'
+        ordering = ['created_at', 'id']
+        indexes = [
+            models.Index(fields=['task', 'event_type', 'created_at', 'id'], name='task_comments_order_idx'),
+            models.Index(fields=['task', 'created_at', 'id'], name='task_events_order_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(event_type='comment_added', body__isnull=False, body__regex=r'\S')
+                    | models.Q(event_type__in=['task_created', 'task_updated'], body__isnull=True)
+                ),
+                name='task_event_body_type_valid',
+            ),
+        ]

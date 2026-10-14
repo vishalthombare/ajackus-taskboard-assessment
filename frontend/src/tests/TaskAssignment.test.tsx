@@ -24,6 +24,7 @@ beforeEach(() => {
   savedTask = { ...initialTask };
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
     const path = String(input);
+    if (path.endsWith("/comments")) return new Response(JSON.stringify({ comments: [], nextCursor: null }));
     if (options?.method === "PATCH" || options?.method === "POST") {
       const body = JSON.parse(options.body as string);
       if ("title" in body) savedTask.title = body.title;

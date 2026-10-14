@@ -1,12 +1,14 @@
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from users.models import User
-from projects.models import Project, Membership, Task
+from projects.models import Project, Membership, Task, TaskEvent
 
 
 class Command(BaseCommand):
     help = 'Seed the database with sample data'
 
     def handle(self, *args, **options):
+        if TaskEvent.objects.exists():
+            raise CommandError('Seed refuses to erase task history. Use a fresh development database.')
         self.stdout.write('seeding...')
 
         Task.objects.all().delete()

@@ -1,10 +1,17 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from uuid import UUID
+from django.core import signing
+from django.db import DatabaseError
 from django.db.models import Q
+from django.db.models.deletion import ProtectedError
+from django.utils.dateparse import parse_datetime
+from django.utils.timezone import is_aware
 from users.serializers import UserSerializer
-from .models import Project, Membership, Task
-from .serializers import ProjectDetailSerializer, TaskSerializer
+from .models import Project, Membership, Task, TaskEvent
+from .serializers import ProjectDetailSerializer, TaskSerializer, CommentCreateSerializer, CommentSerializer
+from . import services
 
 
 def _get_membership(user, project_id):
@@ -97,7 +104,10 @@ class ProjectDetailView(APIView):
             project = Project.objects.get(id=project_id)
         except Project.DoesNotExist:
             return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
-        project.delete()
+        try:
+            project.delete()
+        except ProtectedError:
+            return Response({'error': 'Projects with task history cannot be deleted.'}, status=status.HTTP_409_CONFLICT)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -135,18 +145,16 @@ class TaskListCreateView(APIView):
         if task_status not in ('todo', 'in_progress', 'review', 'done'):
             return Response({'error': 'invalid status'}, status=status.HTTP_400_BAD_REQUEST)
 
-        last = Task.objects.filter(project_id=project_id, status=task_status).order_by('-position').first()
-        position = (last.position + 1) if last else 0
-
-        task = Task.objects.create(
-            project_id=project_id,
-            title=title,
-            description=request.data.get('description') or None,
-            status=task_status,
-            assignee_id=request.data.get('assigneeId') or None,
-            created_by=request.user,
-            position=position,
-        )
+        try:
+            task = services.create_task(
+                project_id, request.user, title=title,
+                description=request.data.get('description') or None, status=task_status,
+                assignee_id=request.data.get('assigneeId') or None,
+            )
+        except Project.DoesNotExist:
+            return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        except DatabaseError:
+            return Response({'error': 'Task and activity could not be saved. Please retry.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         task_data = TaskSerializer(Task.objects.select_related('assignee').get(id=task.id)).data
         return Response({'task': task_data}, status=status.HTTP_201_CREATED)
 
@@ -164,18 +172,24 @@ class TaskDetailView(APIView):
         if not _can_edit_tasks(membership.role):
             return Response({'error': 'viewers cannot update tasks'}, status=status.HTTP_403_FORBIDDEN)
 
+        updates = {}
         if 'title' in request.data:
-            task.title = request.data['title'].strip()
+            updates['title'] = request.data['title'].strip()
         if 'description' in request.data:
-            task.description = request.data['description'] or None
+            updates['description'] = request.data['description'] or None
         if 'status' in request.data:
             new_status = request.data['status']
             if new_status not in ('todo', 'in_progress', 'review', 'done'):
                 return Response({'error': 'invalid status'}, status=status.HTTP_400_BAD_REQUEST)
-            task.status = new_status
+            updates['status'] = new_status
         if 'assigneeId' in request.data:
-            task.assignee_id = request.data['assigneeId'] or None
-        task.save()
+            updates['assignee_id'] = request.data['assigneeId'] or None
+        try:
+            services.update_task(task.id, request.user, updates)
+        except Task.DoesNotExist:
+            return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        except DatabaseError:
+            return Response({'error': 'Task and activity could not be saved. Please retry.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         task_data = TaskSerializer(Task.objects.select_related('assignee').get(id=task_id)).data
         return Response({'task': task_data})
@@ -192,8 +206,67 @@ class TaskDetailView(APIView):
         if not _can_edit_tasks(membership.role):
             return Response({'error': 'viewers cannot delete tasks'}, status=status.HTTP_403_FORBIDDEN)
 
-        task.delete()
+        try:
+            task.delete()
+        except ProtectedError:
+            return Response({'error': 'Tasks with history cannot be deleted.'}, status=status.HTTP_409_CONFLICT)
         return Response({'ok': True})
+
+
+class TaskCommentsView(APIView):
+    page_size = 50
+    cursor_salt = 'task-comments-v1'
+
+    def _get_task(self, request, task_id):
+        try:
+            task = Task.objects.get(id=task_id)
+        except Task.DoesNotExist:
+            return None, Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        if not _get_membership(request.user, task.project_id):
+            return None, Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        return task, None
+
+    def get(self, request, task_id):
+        task, error = self._get_task(request, task_id)
+        if error is not None:
+            return error
+        comments = TaskEvent.objects.filter(task=task, event_type='comment_added')
+        cursor = request.query_params.get('cursor')
+        if cursor:
+            try:
+                value = signing.loads(cursor, salt=self.cursor_salt)
+                timestamp = parse_datetime(value['time'])
+                event_id = UUID(value['id'])
+                if value['task'] != str(task.id) or timestamp is None or not is_aware(timestamp):
+                    raise ValueError('invalid cursor')
+            except (signing.BadSignature, ValueError, TypeError, KeyError):
+                return Response({'error': 'invalid cursor'}, status=status.HTTP_400_BAD_REQUEST)
+            comments = comments.filter(Q(created_at__gt=timestamp) | Q(created_at=timestamp, id__gt=event_id))
+        page = list(comments.order_by('created_at', 'id')[:self.page_size + 1])
+        next_cursor = None
+        if len(page) > self.page_size:
+            page = page[:self.page_size]
+            last = page[-1]
+            next_cursor = signing.dumps({'task': str(task.id), 'time': last.created_at.isoformat(), 'id': str(last.id)}, salt=self.cursor_salt)
+        return Response({'comments': CommentSerializer(page, many=True).data, 'nextCursor': next_cursor})
+
+    def post(self, request, task_id):
+        task, error = self._get_task(request, task_id)
+        if error is not None:
+            return error
+        membership = _get_membership(request.user, task.project_id)
+        if not membership or not _can_edit_tasks(membership.role):
+            return Response({'error': 'viewers cannot post comments'}, status=status.HTTP_403_FORBIDDEN)
+        serializer = CommentCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'error': 'invalid comment', 'details': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            comment = services.add_comment(task.id, request.user, serializer.validated_data['body'])
+        except Task.DoesNotExist:
+            return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        except DatabaseError:
+            return Response({'error': 'Comment could not be saved. Please retry.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'comment': CommentSerializer(comment).data}, status=status.HTTP_201_CREATED)
 
 
 class MemberAddView(APIView):

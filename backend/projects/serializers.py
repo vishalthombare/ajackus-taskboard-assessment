@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from users.serializers import UserSerializer
-from .models import Project, Membership, Task
+from .models import Project, Membership, Task, TaskEvent
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -46,3 +46,27 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = ['id', 'name', 'description', 'owner_id', 'owner', 'memberships', 'tasks', 'created_at', 'updated_at']
+
+
+class CommentBodyField(serializers.CharField):
+    def to_internal_value(self, value):
+        if not isinstance(value, str):
+            self.fail('invalid')
+        return super().to_internal_value(value)
+
+
+class CommentCreateSerializer(serializers.Serializer):
+    body = CommentBodyField(max_length=5000, trim_whitespace=True)
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField()
+    createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+    def get_author(self, obj):
+        return {'id': str(obj.actor_id), 'name': obj.actor_name}
+
+    class Meta:
+        model = TaskEvent
+        fields = ['id', 'author', 'body', 'createdAt']
+        read_only_fields = fields
