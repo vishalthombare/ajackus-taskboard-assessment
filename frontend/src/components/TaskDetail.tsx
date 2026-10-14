@@ -1,3 +1,4 @@
+import { activityQueryKey } from "@/lib/activity-api";
 import { TaskComments } from "@/components/TaskComments";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -30,6 +31,7 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
       updateProjectTask(task.id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", currentUserId, projectId] });
+      void queryClient.invalidateQueries({ queryKey: activityQueryKey(currentUserId, projectId) });
       onClose();
     },
     onError: (err) => setError(err instanceof Error ? err.message : "save failed"),
@@ -40,6 +42,7 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
       apiFetch<{ ok: true }>(`/api/tasks/${task.id}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", currentUserId, projectId] });
+      void queryClient.invalidateQueries({ queryKey: activityQueryKey(currentUserId, projectId) });
       onClose();
     },
     onError: (err) => setError(err instanceof Error ? err.message : "delete failed"),
@@ -139,7 +142,7 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
           </p>
         )}
 
-        <TaskComments key={`${task.id}-${currentUserId}`} taskId={task.id} canPost={canEdit} />
+        <TaskComments key={`${task.id}-${currentUserId}`} taskId={task.id} projectId={projectId} canPost={canEdit} />
 
         <div className="flex items-center justify-between gap-3 mt-6">
           <button

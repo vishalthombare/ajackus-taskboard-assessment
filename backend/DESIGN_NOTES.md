@@ -192,3 +192,21 @@ The export schema uses the eight manually created columns: Task ID, Name, Descri
 See [AIRTABLE_EXPORT.md](AIRTABLE_EXPORT.md) for columns, token scopes, setup, retry/deadline choices, Docker support, tests, and the exact live curl responses. On October 14, 2026, the real Q3 Launch export returned HTTP 200 with 7 created records and no failures. Repeating the same request returned HTTP 200 with 7 updated records and zero new records. An independent SDK read confirmed 7 records with 7 unique Task IDs, matching every project task. No connected browser is available for visual inspection; the API and project UI provide the base link.
 
 Verification: 15 Node export tests passed (including 1,000 tasks and repeats), 98 backend tests passed with 3 PostgreSQL-only history tests skipped on SQLite, 41 frontend tests passed, and source type checking passed. After the eight-column adjustment, the 20 backend export tests and 15 Node helper tests passed again. The user confirmed the integration works. Docker cannot be built in this environment because the Docker CLI is unavailable.
+
+## Part 3b — Project activity feed
+
+The project detail page now shows a read-only feed of task creation, actual task field updates (including status and assignee), and comments. Each entry includes the actor, action, task label, and posting time; recent entries appear first. Admins, members, and viewers can read their project's feed, while outsiders and anonymous users are denied by the server.
+
+The implementation reuses the existing `task_events` table and its atomic task/comment writers. **No new database table or migration is required.** An activity write failure still rolls back the original change: accepting a task/comment change without its audit record would leave the engagement history incomplete. No-op task saves produce no event, and historical tasks do not receive fabricated backfilled records.
+
+The API scopes events through their task's project, sorts by descending timestamp and UUID, and returns 50 events per page. Signed cursors are bound to the project and use a dedicated signing salt. Keyset pagination keeps older pages consistent when new events arrive; task labels and assignment names are fetched without per-event queries.
+
+Actor names are immutable snapshots. Task labels and assignee display names use current records, while original assignment UUIDs and before/after field values stay intact in the audit JSON. Missing former assignees remain readable. Reading the feed does not change stored history.
+
+The UI scopes its cache to user and project, preserves the server's exact order, renders comment text safely, and supports loading older entries and retrying failures. Successful task creation, task updates, and comments invalidate the matching feed; readers can refresh explicitly, and the existing focus refresh behavior also applies. Session changes clear activity data through the shared query client.
+
+See [ACTIVITY_API.md](ACTIVITY_API.md) for the API shape, authorization, pagination, audit decisions, curl examples, and test coverage.
+
+Verification completed: **122 backend tests passed, 3 PostgreSQL-only trigger tests skipped on SQLite; all 24 new activity tests also passed on PostgreSQL in an isolated temporary schema, which was removed afterward. All 53 frontend tests passed; application source type checking passed with `--skipLibCheck`; Django system checks passed.**
+
+Live read-only curl checks on port 8000 returned member/viewer 200, outsider admin 403, anonymous 401, and PATCH 405. Q3 Launch (`caf7be4d-f4e3-42c7-915b-bfcc1d6ab62f`) returned its three existing comment events in newest-first order, and their project scope was verified against the database. These live checks did not create or change application data. No browser is connected for visual inspection; the UI was verified through component and project-page integration tests. This feature requires no application migration.

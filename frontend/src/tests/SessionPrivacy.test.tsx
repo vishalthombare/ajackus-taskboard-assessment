@@ -113,6 +113,7 @@ describe("private data across sessions", () => {
     vi.mocked(apiFetch).mockImplementation(async (path) => {
       if (path === "/api/auth/login") return { token: "b-token", user: bob };
       if (path === "/api/projects") return { projects: [] };
+      if (path.endsWith("/activity") && getStoredUser()?.id === alice.id) return { activity: [], nextCursor: null };
       if (getStoredUser()?.id === alice.id) return { project };
       throw new Error("forbidden");
     });

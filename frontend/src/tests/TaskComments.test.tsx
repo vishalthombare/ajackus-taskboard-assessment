@@ -14,7 +14,7 @@ const first = { id: "c1", author: { id: user.id, name: user.name }, body: "First
 const second = { ...first, id: "c2", body: "Second discussion", createdAt: "2026-10-14T11:00:00Z" };
 
 function show(canPost = true, taskId = "t1") {
-  return render(<QueryClientProvider client={queryClient}><TaskComments taskId={taskId} canPost={canPost} /></QueryClientProvider>);
+  return render(<QueryClientProvider client={queryClient}><TaskComments taskId={taskId} projectId="p1" canPost={canPost} /></QueryClientProvider>);
 }
 
 beforeEach(() => {

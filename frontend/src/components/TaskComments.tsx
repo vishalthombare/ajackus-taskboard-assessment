@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { activityQueryKey } from "@/lib/activity-api";
 import { getStoredUser } from "@/lib/api-client";
 import { getComments, postComment } from "@/lib/comments-api";
 import type { TaskComment } from "@/types";
 
-export function TaskComments({ taskId, canPost }: { taskId: string; canPost: boolean }) {
+export function TaskComments({ taskId, projectId, canPost }: { taskId: string; projectId: string; canPost: boolean }) {
   const userId = getStoredUser()?.id;
   const queryClient = useQueryClient();
   const queryKey = ["comments", userId, taskId];
@@ -22,6 +23,7 @@ export function TaskComments({ taskId, canPost }: { taskId: string; canPost: boo
       // Keep the new comment visible even when older pages have not all been loaded.
       setRecentComments(previous => [...previous, comment]);
       void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: activityQueryKey(userId, projectId) });
     },
   });
   const unique = new Map<string, TaskComment>();

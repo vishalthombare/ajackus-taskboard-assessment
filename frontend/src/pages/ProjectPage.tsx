@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getToken, getStoredUser } from "@/lib/api-client";
 import { getProject, createTask as createProjectTask } from "@/lib/task-api";
+import { ActivityFeed } from "@/components/ActivityFeed";
+import { activityQueryKey } from "@/lib/activity-api";
 import { ProjectExport } from "@/components/ProjectExport";
 import { Header } from "@/components/Header";
 import { StatusColumn } from "@/components/StatusColumn";
@@ -37,6 +39,7 @@ export default function ProjectPage() {
     onSuccess: () => {
       setNewTitle("");
       queryClient.invalidateQueries({ queryKey: ["project", currentUserId, id] });
+      void queryClient.invalidateQueries({ queryKey: activityQueryKey(currentUserId, id!) });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "create failed"),
   });
@@ -150,6 +153,8 @@ export default function ProjectPage() {
                 />
               ))}
             </div>
+
+            <ActivityFeed key={`${id}-${currentUserId}`} projectId={id!} />
 
             <section className="mt-10">
               <h2 className="text-sm font-medium mb-3">members</h2>

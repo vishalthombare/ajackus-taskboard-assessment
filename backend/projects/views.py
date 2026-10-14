@@ -9,8 +9,9 @@ from django.db.models.deletion import ProtectedError
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_aware
 from users.serializers import UserSerializer
+from users.models import User
 from .models import Project, Membership, Task, TaskEvent
-from .serializers import ProjectDetailSerializer, TaskSerializer, CommentCreateSerializer, CommentSerializer
+from .serializers import ProjectDetailSerializer, TaskSerializer, CommentCreateSerializer, CommentSerializer, ActivitySerializer
 from . import services
 from .airtable import AirtableExportError, export_project
 
@@ -268,6 +269,52 @@ class TaskCommentsView(APIView):
         except DatabaseError:
             return Response({'error': 'Comment could not be saved. Please retry.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({'comment': CommentSerializer(comment).data}, status=status.HTTP_201_CREATED)
+
+
+class ProjectActivityView(APIView):
+    page_size = 50
+    cursor_salt = 'project-activity-v1'
+
+    def get(self, request, project_id):
+        if not _get_membership(request.user, project_id):
+            return Response({'error': 'forbidden'}, status=status.HTTP_403_FORBIDDEN)
+        events = TaskEvent.objects.filter(task__project_id=project_id).select_related('task')
+        cursor = request.query_params.get('cursor')
+        if cursor:
+            try:
+                value = signing.loads(cursor, salt=self.cursor_salt)
+                if not isinstance(value, dict) or value.get('project') != str(project_id):
+                    raise ValueError('invalid cursor')
+                if not isinstance(value.get('time'), str) or not isinstance(value.get('id'), str):
+                    raise ValueError('invalid cursor')
+                timestamp = parse_datetime(value['time'])
+                event_id = UUID(value['id'])
+                if timestamp is None or not is_aware(timestamp):
+                    raise ValueError('invalid cursor')
+            except (signing.BadSignature, ValueError, TypeError, KeyError):
+                return Response({'error': 'invalid cursor'}, status=status.HTTP_400_BAD_REQUEST)
+            events = events.filter(Q(created_at__lt=timestamp) | Q(created_at=timestamp, id__lt=event_id))
+        page = list(events.order_by('-created_at', '-id')[:self.page_size + 1])
+        next_cursor = None
+        if len(page) > self.page_size:
+            page = page[:self.page_size]
+            last = page[-1]
+            next_cursor = signing.dumps({
+                'project': str(project_id), 'time': last.created_at.isoformat(), 'id': str(last.id),
+            }, salt=self.cursor_salt)
+        # Resolve historical assignment IDs once for the entire page, never per event.
+        assignee_ids = set()
+        for event in page:
+            for value in event.changes.get('assigneeId', {}).values():
+                try:
+                    assignee_ids.add(UUID(value))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+        names = {str(user_id): name for user_id, name in User.objects.filter(id__in=assignee_ids).values_list('id', 'name')}
+        return Response({
+            'activity': ActivitySerializer(page, many=True, context={'assignee_names': names}).data,
+            'nextCursor': next_cursor,
+        })
 
 
 class MemberAddView(APIView):
