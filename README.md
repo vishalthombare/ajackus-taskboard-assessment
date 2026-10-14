@@ -38,7 +38,8 @@ chmod +x bin/setup
 # Backend
 cd backend
 pip install -r requirements.txt
-cp ../.env.example ../.env   # edit POSTGRES_* if your local setup differs
+npm ci --prefix integrations/airtable
+# Configure backend/.env with your database and Airtable settings.
 python manage.py migrate
 python manage.py seed
 python -m pytest
@@ -115,15 +116,18 @@ curl -H "Authorization: Bearer <token>" http://localhost:8000/api/projects
 
 ## Airtable Export (Part 3c)
 
-Set these in your `.env` before running the export:
+Set these in your `backend/.env` before running the export:
 
 ```
 AIRTABLE_API_KEY=your_personal_access_token
 AIRTABLE_BASE_ID=appXXXXXXXXXXXXXX
 AIRTABLE_TABLE_NAME=Tasks
+AIRTABLE_NODE_BINARY=/absolute/path/to/node
 ```
 
-The backend uses `pyairtable` for real API calls. `backend/projects/airtable_mock.py` is a test double — use it in unit tests, not in production code.
+The Django endpoint invokes a server-side helper using the official `airtable` npm SDK. Export from the project detail page as an admin/member; reruns upsert by Task ID, transient errors receive bounded retries, and bad records are isolated from otherwise successful batches.
+
+Create the required columns with `python manage.py setup_airtable` (requires `schema.bases:read` and `schema.bases:write`) or configure them manually. Normal exports require record read/write access. See [backend/AIRTABLE_EXPORT.md](backend/AIRTABLE_EXPORT.md) for columns, error handling, Docker setup, tests, and curl verification.
 
 ## Tech Stack
 

@@ -15,6 +15,7 @@ services:
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
       - ./backend:/app
+      - backend_airtable_node_modules:/app/integrations/airtable/node_modules
     ports:
       - "8000:8000"
     depends_on:
@@ -43,3 +44,4 @@ services:
 volumes:
   pgdata:
   frontend_node_modules:
+  backend_airtable_node_modules:

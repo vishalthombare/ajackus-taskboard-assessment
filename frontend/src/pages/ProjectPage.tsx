@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getToken, getStoredUser } from "@/lib/api-client";
 import { getProject, createTask as createProjectTask } from "@/lib/task-api";
+import { ProjectExport } from "@/components/ProjectExport";
 import { Header } from "@/components/Header";
 import { StatusColumn } from "@/components/StatusColumn";
 import { TaskDetail } from "@/components/TaskDetail";
@@ -90,6 +91,8 @@ export default function ProjectPage() {
                 </p>
               </div>
             </div>
+
+            <ProjectExport projectId={id!} canExport={canEditTasks} />
 
             <section className="bg-surface border border-border rounded-lg p-4 mb-6">
               <h2 className="text-sm font-medium mb-3">add a task</h2>

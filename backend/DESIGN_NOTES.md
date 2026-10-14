@@ -178,3 +178,17 @@ python manage.py migrate projects 0002_task_events
 ```
 
 The migration makes activity-backed task writes and the new comments API available. Task/project deletion with recorded history will return 409.
+
+## Part 3c — Airtable export
+
+The synchronous export is implemented with the official `airtable` npm SDK in a server-side Node helper called by Django. It does not use `pyairtable` or the test double for production calls and does not require a database migration. The helper receives project task data over stdin; Airtable credentials stay in the server environment.
+
+Records are upserted by the stable task UUID, in batches of ten. Bounded retries cover transient network errors, rate limiting, and server failures; identical permanent failures are not retried. A rejected batch is split to isolate bad records, so successful records and later batches are retained. Global authentication/schema/quota errors stop further impossible requests and return a clear error.
+
+The project page enables export only for admins/members, shows pending and partial-result states, and links to the Airtable base. The API independently enforces project membership and role. Updating an export does not edit the local task or activity history; external successful writes are retained across partial failures, with repeat upserts providing safe recovery.
+
+The export schema uses the eight manually created columns: Task ID, Name, Description, Status, Assignee Name, Project, Project ID, and Created By. Task timestamps and board positions are not required. Configuration comes from `backend/.env`; setup does not copy an example file or overwrite credentials.
+
+See [AIRTABLE_EXPORT.md](AIRTABLE_EXPORT.md) for columns, token scopes, setup, retry/deadline choices, Docker support, tests, and the exact live curl responses. On October 14, 2026, the real Q3 Launch export returned HTTP 200 with 7 created records and no failures. Repeating the same request returned HTTP 200 with 7 updated records and zero new records. An independent SDK read confirmed 7 records with 7 unique Task IDs, matching every project task. No connected browser is available for visual inspection; the API and project UI provide the base link.
+
+Verification: 15 Node export tests passed (including 1,000 tasks and repeats), 98 backend tests passed with 3 PostgreSQL-only history tests skipped on SQLite, 41 frontend tests passed, and source type checking passed. After the eight-column adjustment, the 20 backend export tests and 15 Node helper tests passed again. The user confirmed the integration works. Docker cannot be built in this environment because the Docker CLI is unavailable.

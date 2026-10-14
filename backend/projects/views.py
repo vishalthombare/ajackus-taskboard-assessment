@@ -12,6 +12,7 @@ from users.serializers import UserSerializer
 from .models import Project, Membership, Task, TaskEvent
 from .serializers import ProjectDetailSerializer, TaskSerializer, CommentCreateSerializer, CommentSerializer
 from . import services
+from .airtable import AirtableExportError, export_project
 
 
 def _get_membership(user, project_id):
@@ -308,5 +309,13 @@ class ExportView(APIView):
         if not _can_edit_tasks(membership.role):
             return Response({'error': 'only admins and members can export'}, status=status.HTTP_403_FORBIDDEN)
 
-        tasks = Task.objects.filter(project_id=project_id).select_related('assignee', 'created_by')
-        return Response({'exported': 0, 'tasks': TaskSerializer(tasks, many=True).data})
+        try:
+            project = Project.objects.get(id=project_id)
+            result = export_project(project)
+        except Project.DoesNotExist:
+            return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+        except AirtableExportError as error:
+            return Response({'error': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if result.get('error') and result['exported'] == 0:
+            return Response(result, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(result)

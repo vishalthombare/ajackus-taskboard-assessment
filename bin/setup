@@ -11,14 +11,15 @@ echo "==> configuring git hooks"
 git config core.hooksPath .git-hooks 2>/dev/null || true
 chmod +x .git-hooks/* 2>/dev/null || true
 
-if [ ! -f .env ]; then
-  echo "==> copying .env.example -> .env (edit POSTGRES_* if needed)"
-  cp .env.example .env
+if [ ! -f backend/.env ]; then
+  echo "Create backend/.env with your database and Airtable settings before running setup."
+  exit 1
 fi
 
 echo "==> installing backend dependencies"
 cd backend
 pip install -r requirements.txt
+npm ci --prefix integrations/airtable
 
 echo "==> running django migrations"
 python manage.py migrate
