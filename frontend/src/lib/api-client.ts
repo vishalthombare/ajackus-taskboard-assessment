@@ -1,3 +1,5 @@
+import { clearQueryCache } from "@/lib/query-client";
+
 const TOKEN_KEY = "taskboard_token";
 const USER_KEY = "taskboard_user";
 
@@ -20,11 +22,13 @@ export function getStoredUser(): StoredUser | null {
 }
 
 export function setSession(token: string, user: StoredUser) {
+  clearQueryCache();
   window.localStorage.setItem(TOKEN_KEY, token);
   window.localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearSession() {
+  clearQueryCache();
   window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
 }

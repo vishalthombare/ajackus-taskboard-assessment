@@ -12,6 +12,7 @@ export default function ProjectPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const currentUserId = getStoredUser()?.id;
 
   const [activeTask, setActiveTask] = useState<ApiTask | null>(null);
   const [newTitle, setNewTitle] = useState("");
@@ -23,8 +24,9 @@ export default function ProjectPage() {
   }, [navigate]);
 
   const { data, isLoading, error: queryError } = useQuery({
-    queryKey: ["project", id],
-    queryFn: () => apiFetch<{ project: ApiProjectDetail }>(`/api/projects/${id}`),
+    queryKey: ["project", currentUserId, id],
+    enabled: Boolean(getToken() && currentUserId && id),
+    queryFn: ({ signal }) => apiFetch<{ project: ApiProjectDetail }>(`/api/projects/${id}`, { signal }),
   });
 
   const createTask = useMutation({
@@ -35,13 +37,12 @@ export default function ProjectPage() {
       }),
     onSuccess: () => {
       setNewTitle("");
-      queryClient.invalidateQueries({ queryKey: ["project", id] });
+      queryClient.invalidateQueries({ queryKey: ["project", currentUserId, id] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "create failed"),
   });
 
   const project = data?.project;
-  const currentUserId = getStoredUser()?.id;
   const canEditTasks = project?.memberships.some(
     ({ user, role }) => user.id === currentUserId && (role === "admin" || role === "member"),
   ) ?? false;

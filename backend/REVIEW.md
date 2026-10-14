@@ -217,5 +217,4 @@ Account B initial dashboard data: {"projects":[{"id":"private","name":"Account A
 **UI check:** Open an assigned task. The editor incorrectly shows `unassigned`; change only its title and save. Reopen the task and observe that the original assignee has been removed.
 
 ## Part 2 — Completed fix
-
 Issue #1 is fixed with a parameterized, project-scoped ORM search. The before/after curl evidence and regression coverage are recorded above. Issue #2 is also fixed, with backend permission enforcement, disabled viewer controls, regression tests, and its own before/after evidence above. Issues #3–#4 remain open.

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch, getToken } from "@/lib/api-client";
+import { apiFetch, getToken, getStoredUser } from "@/lib/api-client";
 import { Header } from "@/components/Header";
 
 type ProjectSummary = {
@@ -16,14 +16,16 @@ type ProjectSummary = {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const currentUserId = getStoredUser()?.id;
 
   useEffect(() => {
     if (!getToken()) navigate("/login", { replace: true });
   }, [navigate]);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => apiFetch<{ projects: ProjectSummary[] }>("/api/projects"),
+    queryKey: ["projects", currentUserId],
+    enabled: Boolean(getToken() && currentUserId),
+    queryFn: ({ signal }) => apiFetch<{ projects: ProjectSummary[] }>("/api/projects", { signal }),
   });
 
   return (
