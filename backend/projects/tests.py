@@ -100,6 +100,65 @@ class TestTasks:
 
 
 @pytest.mark.django_db
+class TestTaskUpdatePermissions:
+    @pytest.mark.parametrize('role, expected_status', [
+        (None, 403), ('viewer', 403), ('member', 200), ('admin', 200),
+    ])
+    def test_update_requires_permission_in_tasks_project(self, auth_client, user, role, expected_status):
+        owner = User.objects.create_user(email='owner@example.com', name='Owner', password='password123')
+        project = Project.objects.create(name='Private', owner=owner)
+        Membership.objects.create(user=owner, project=project, role='admin')
+        if role:
+            Membership.objects.create(user=user, project=project, role=role)
+        else:
+            other_project = Project.objects.create(name='Other', owner=user)
+            Membership.objects.create(user=user, project=other_project, role='admin')
+        task = Task.objects.create(project=project, title='Original', description='Private', created_by=owner)
+        original_updated_at = task.updated_at
+
+        response = auth_client.patch(f'/api/tasks/{task.id}', {
+            'title': 'Changed', 'description': 'Updated', 'status': 'done', 'assigneeId': str(owner.id),
+        }, format='json')
+
+        assert response.status_code == expected_status
+        task.refresh_from_db()
+        if expected_status == 403:
+            assert 'task' not in response.data
+            assert task.title == 'Original'
+            assert task.description == 'Private'
+            assert task.status == 'todo'
+            assert task.assignee_id is None
+            assert task.updated_at == original_updated_at
+        else:
+            assert response.data['task']['id'] == str(task.id)
+            assert task.title == 'Changed'
+            assert task.description == 'Updated'
+            assert task.status == 'done'
+            assert task.assignee_id == owner.id
+
+    def test_permission_checked_before_processing_input(self, auth_client, user):
+        project = Project.objects.create(name='No membership', owner=user)
+        task = Task.objects.create(project=project, title='Original', created_by=user)
+        response = auth_client.patch(f'/api/tasks/{task.id}', {'title': None}, format='json')
+        assert response.status_code == 403
+        task.refresh_from_db()
+        assert task.title == 'Original'
+
+    def test_anonymous_cannot_update_task(self, client, user):
+        project = Project.objects.create(name='Private', owner=user)
+        task = Task.objects.create(project=project, title='Original', created_by=user)
+        response = client.patch(f'/api/tasks/{task.id}', {'title': 'Changed'}, format='json')
+        assert response.status_code == 401
+        task.refresh_from_db()
+        assert task.title == 'Original'
+
+    def test_update_missing_task_returns_404(self, auth_client):
+        response = auth_client.patch('/api/tasks/22222222-2222-4222-8222-222222222222',
+                                     {'title': 'Changed'}, format='json')
+        assert response.status_code == 404
+
+
+@pytest.mark.django_db
 class TestTaskSearch:
     @pytest.fixture
     def search_project(self, user):

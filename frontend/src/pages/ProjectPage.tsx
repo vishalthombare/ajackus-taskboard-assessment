@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, getToken } from "@/lib/api-client";
+import { apiFetch, getToken, getStoredUser } from "@/lib/api-client";
 import { Header } from "@/components/Header";
 import { StatusColumn } from "@/components/StatusColumn";
 import { TaskDetail } from "@/components/TaskDetail";
@@ -41,6 +41,10 @@ export default function ProjectPage() {
   });
 
   const project = data?.project;
+  const currentUserId = getStoredUser()?.id;
+  const canEditTasks = project?.memberships.some(
+    ({ user, role }) => user.id === currentUserId && (role === "admin" || role === "member"),
+  ) ?? false;
   const tasksByStatus: Record<TaskStatus, ApiTask[]> = {
     todo: [],
     in_progress: [],
@@ -93,7 +97,7 @@ export default function ProjectPage() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!newTitle.trim()) return;
+                  if (!canEditTasks || !newTitle.trim()) return;
                   setError(null);
                   createTask.mutate({ title: newTitle.trim(), status: newColumn });
                 }}
@@ -101,12 +105,14 @@ export default function ProjectPage() {
               >
                 <input
                   type="text"
+                  disabled={!canEditTasks}
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="task title"
                   className="flex-1 rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 />
                 <select
+                  disabled={!canEditTasks}
                   value={newColumn}
                   onChange={(e) => setNewColumn(e.target.value as TaskStatus)}
                   className="rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
@@ -119,8 +125,8 @@ export default function ProjectPage() {
                 </select>
                 <button
                   type="submit"
-                  disabled={createTask.isPending}
-                  className="bg-accent hover:bg-indigo-500 text-white text-sm font-medium rounded-md px-4 disabled:opacity-50"
+                  disabled={!canEditTasks || createTask.isPending}
+                  className="bg-accent hover:bg-indigo-500 text-white text-sm font-medium rounded-md px-4 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   add
                 </button>
