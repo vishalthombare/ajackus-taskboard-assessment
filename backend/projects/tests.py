@@ -97,3 +97,69 @@ class TestTasks:
 
         response = client.delete(f'/api/tasks/{task.id}')
         assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestTaskSearch:
+    @pytest.fixture
+    def search_project(self, user):
+        project = Project.objects.create(name='Searchable', owner=user)
+        Membership.objects.create(user=user, project=project, role='admin')
+        return project
+
+    @pytest.mark.parametrize('targeted', [False, True])
+    def test_sql_payload_cannot_expose_another_projects_tasks(self, auth_client, user, search_project, targeted):
+        owner = User.objects.create_user(email='private@example.com', name='Private', password='password123')
+        private_project = Project.objects.create(name='Private', owner=owner)
+        private_task = Task.objects.create(project=private_project, title='Private task', created_by=owner)
+        payload = f"zznomatch') OR (id = '{private_task.id}') -- " if targeted else "') OR TRUE -- "
+
+        response = auth_client.get(f'/api/projects/{search_project.id}/tasks', {'q': payload})
+
+        assert response.status_code == 200
+        assert response.data == {'tasks': []}
+
+    @pytest.mark.parametrize('field', ['title', 'description'])
+    @pytest.mark.parametrize('query', ["oWnEr'S", '%', '_', '\\'])
+    def test_search_treats_special_characters_as_literal_text(self, auth_client, user, search_project, field, query):
+        values = {'title': 'Ordinary title', field: f'Match {query.lower()} text'}
+        match = Task.objects.create(project=search_project, created_by=user, **values)
+        Task.objects.create(project=search_project, title='Unrelated', created_by=user)
+
+        response = auth_client.get(f'/api/projects/{search_project.id}/tasks', {'q': query})
+
+        assert response.status_code == 200
+        assert [task['id'] for task in response.data['tasks']] == [str(match.id)]
+
+    @pytest.mark.parametrize('role', ['admin', 'member', 'viewer'])
+    def test_members_can_search_only_their_project(self, auth_client, user, search_project, role):
+        Membership.objects.filter(user=user, project=search_project).update(role=role)
+        first = Task.objects.create(project=search_project, title='Release plan', created_by=user, assignee=user, position=0)
+        second = Task.objects.create(project=search_project, title='Notes', description='release details', created_by=user, position=1)
+        Task.objects.create(project=search_project, title='Unrelated', created_by=user)
+        other = Project.objects.create(name='Other', owner=user)
+        Task.objects.create(project=other, title='Release plan', created_by=user)
+
+        response = auth_client.get(f'/api/projects/{search_project.id}/tasks', {'q': 'RELEASE'})
+        unfiltered = auth_client.get(f'/api/projects/{search_project.id}/tasks')
+
+        assert response.status_code == 200
+        assert [task['id'] for task in response.data['tasks']] == [str(first.id), str(second.id)]
+        assert response.data['tasks'][0]['assignee']['id'] == str(user.id)
+        assert set(response.data['tasks'][0]) == set(unfiltered.data['tasks'][0])
+
+    @pytest.mark.parametrize('query', [None, ''])
+    def test_empty_search_returns_project_tasks(self, auth_client, user, search_project, query):
+        task = Task.objects.create(project=search_project, title='Task', created_by=user)
+        response = auth_client.get(f'/api/projects/{search_project.id}/tasks', {} if query is None else {'q': query})
+        assert response.status_code == 200
+        assert [record['id'] for record in response.data['tasks']] == [str(task.id)]
+
+    def test_non_member_cannot_search(self, auth_client, user):
+        private_project = Project.objects.create(name='Private', owner=user)
+        response = auth_client.get(f'/api/projects/{private_project.id}/tasks', {'q': "') OR TRUE -- "})
+        assert response.status_code == 403
+
+    def test_anonymous_cannot_search(self, client, search_project):
+        response = client.get(f'/api/projects/{search_project.id}/tasks', {'q': 'Task'})
+        assert response.status_code == 401
